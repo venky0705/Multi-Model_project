@@ -1,1 +1,12 @@
 .env
+.env.*
+!.env.example
+env/
+.venv/
+__pycache__/
+*.py[cod]
+logs/
+data/
+.streamlit/secrets.toml
+config/public_workspace.json
+config/public_workspace.tmp

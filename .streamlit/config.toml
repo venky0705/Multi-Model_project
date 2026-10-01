@@ -1,0 +1,5 @@
+[server]
+# Avoid inspecting Transformers lazy modules, which can import optional
+# vision dependencies while Streamlit watches source files.
+# Restart the app manually after editing Python files.
+fileWatcherType = "none"
