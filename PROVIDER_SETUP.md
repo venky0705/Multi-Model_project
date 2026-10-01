@@ -29,8 +29,12 @@ python -m streamlit run UI/app.py
 ```
 
 Restart an existing app session after installing dependencies or editing configuration.
-Select your PDF and ingest it into the new collection. Existing parsed artifacts can
-be reused; embeddings must be regenerated. No collections were deleted by this change.
+The default resume is bundled at `data/uploads/Vemala Venkatesh CV.pdf.pdf`.
+Visitors can open the app without owner login or PDF upload. On the first visit,
+the app parses that PDF and indexes it into `mm-rag-bge-m3` if it is not already
+indexed. This can take several minutes while BGE-M3 loads and generates vectors.
+The owner can select and prepare another PDF; the app then serves that selection
+to visitors after logout.
 
 ## Embedding compatibility
 
@@ -56,5 +60,6 @@ References: [BGE-M3 model card](https://huggingface.co/BAAI/bge-m3),
 [Qdrant collections](https://qdrant.tech/documentation/manage-data/collections/),
 [Groq vision documentation](https://console.groq.com/docs/vision).
 
-Changes were reviewed statically. Dependencies, model downloads, API calls, and
-indexing were not executed as part of this migration.
+Only the default resume is included in Git; other PDFs and generated parse files
+remain ignored. The resume contains personal information, so keep this GitHub
+repository private if you do not want the document publicly accessible.

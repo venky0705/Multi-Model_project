@@ -6,7 +6,11 @@ env/
 __pycache__/
 *.py[cod]
 logs/
-data/
+data/*
+!data/uploads/
+data/uploads/*
+!data/uploads/Vemala Venkatesh CV.pdf.pdf
 .streamlit/secrets.toml
 config/public_workspace.json
+!config/public_workspace.json
 config/public_workspace.tmp

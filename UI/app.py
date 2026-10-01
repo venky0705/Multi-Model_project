@@ -50,6 +50,7 @@ from src.generation import MultimodalRAGGenerator
 DATA_DIR = PROJECT_ROOT / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 PARSED_ROOT = DATA_DIR / "parsed_pdf_output"
+DEFAULT_RESUME_PDF = UPLOAD_DIR / "Vemala Venkatesh CV.pdf.pdf"
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PARSED_ROOT.mkdir(parents=True, exist_ok=True)
@@ -225,6 +226,34 @@ def get_generator(
         model_name=model_name,
         max_images=max_images,
     )
+
+
+@st.cache_resource(show_spinner=False)
+def prepare_default_resume(
+    pdf_path: str,
+    fingerprint: str,
+    collection_name: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Parse and index the bundled resume once when the deployed app first opens."""
+    resume_path = Path(pdf_path)
+    output_dir = PARSED_ROOT / resume_path.stem
+    parser = ComplexPDFParser(
+        pdf_path=str(resume_path),
+        output_dir=str(output_dir),
+        tesseract_path=os.getenv("TESSERACT_PATH") or None,
+    )
+    parsed = parser.parse(save_output=True)
+    write_parse_manifest(
+        output_dir=output_dir,
+        pdf_path=resume_path,
+        fingerprint=fingerprint,
+    )
+    ingestion = MultimodalDocumentIngestion(collection_name=collection_name)
+    indexed = ingestion.ingest_documents(
+        parsed["documents"],
+        replace_existing=True,
+    )
+    return parsed, indexed
 
 
 # ---------------------------------------------------------------------
@@ -2070,6 +2099,28 @@ else:
     except Exception:
         st.info("The document assistant is temporarily unavailable. Please contact the owner.")
         st.stop()
+    if (
+        selected_pdf_path is not None
+        and selected_pdf_path.resolve() == DEFAULT_RESUME_PDF.resolve()
+        and not is_chat_ready()
+    ):
+        try:
+            with st.spinner("Preparing the resume for its first visit..."):
+                parsed, indexed = prepare_default_resume(
+                    str(selected_pdf_path),
+                    selected_fingerprint,
+                    collection_name,
+                )
+            st.session_state.parsed_result = parsed
+            st.session_state.parsed_pdf_path = str(selected_pdf_path)
+            st.session_state.parsed_output_dir = parsed["output_dir"]
+            st.session_state.parsed_file_fingerprint = selected_fingerprint
+            st.session_state.ingestion_result = indexed
+            st.session_state.active_collection = collection_name
+            st.session_state.index_restore_mode = "automatic_default_resume"
+        except Exception:
+            st.error("The default resume could not be prepared. Please contact the owner.")
+            st.stop()
     if selected_pdf_path is None or not is_chat_ready():
         st.info("The owner needs to prepare a document before chat is available.")
         st.stop()

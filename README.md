@@ -1,13 +1,13 @@
 # Multi-Model Project
 
-For the current Hugging Face embedding, Groq generation, and Qdrant setup,
-see [Provider setup](PROVIDER_SETUP.md). Configuration variable names are provided
-in [.env.example](.env.example).
+This Streamlit app answers questions about PDFs with a RAG pipeline. It uses
+local BGE-M3 embeddings, Qdrant vector storage, and Groq for answer generation.
+See [Provider setup](PROVIDER_SETUP.md) and [.env.example](.env.example).
 
 For Streamlit Community Cloud, configure the required credentials under
 **Manage app → Settings → Secrets**. The hosted service cannot read your local
-`.env` file. At minimum, provide `OWNER_PASSWORD`, `GROQ_API_KEY`, `QDRANT_URL`,
-and `QDRANT_API_KEY` using TOML syntax:
+`.env` file. Provide `OWNER_PASSWORD`, `GROQ_API_KEY`, `QDRANT_URL`, and
+`QDRANT_API_KEY` using TOML syntax:
 
 ```toml
 OWNER_PASSWORD = "choose-a-private-password"
@@ -19,23 +19,37 @@ QDRANT_API_KEY = "your-qdrant-api-key"
 Add `HF_EMBEDDING_MODEL`, `HF_EMBEDDING_DEVICE`, `GROQ_CHAT_MODEL`, and
 `QDRANT_COLLECTION_NAME` there too if you want to override their defaults.
 
-A Python project workspace with a directory for data-parsing notebooks. The project currently contains the initial folder structure; application code, model implementations, and dependencies have not yet been added.
+## Hosted default PDF
+
+The app starts with `data/uploads/Vemala Venkatesh CV.pdf.pdf`. That exact PDF
+is included in the repository; other files under `data/` remain ignored. On the
+first visitor session, the app parses the bundled PDF and indexes it in the
+`mm-rag-bge-m3` Qdrant collection if it is not already indexed. This first
+preparation may take a few minutes while the embedding model loads.
+
+The bundled PDF is a personal CV. Its contents will be visible to people with
+access to the GitHub repository and may be discussed by users of the deployed
+app; keep the repository private if that is not intended.
+
+When the owner selects and prepares another PDF, the app remembers that choice
+for visitors after logout.
 
 ## Technology and requirements
 
 - **Python:** 3.12 (the current local environment uses CPython 3.12.13).
 - **Environment and package manager:** [uv](https://docs.astral.sh/uv/).
 - **Virtual environment directory:** `env`.
-- **Dependencies:** managed through `requirements.txt`, which is currently empty.
+- **Dependencies:** listed in `requirements.txt`.
 
 ## Project structure
 
 ```text
 Multi-Model_project/
-|-- data-parsing/
-|   `-- ex.ipynb         # Empty notebook placeholder for data-parsing work
-|-- env/                # Local virtual environment, created during setup
-|-- .env                # Local configuration file (ignored by Git)
+|-- data/
+|   `-- uploads/
+|       `-- Vemala Venkatesh CV.pdf.pdf  # Hosted default PDF
+|-- env/                # Local virtual environment (ignored by Git)
+|-- .env                # Local secrets (ignored by Git)
 |-- .gitignore          # Git ignore rules
 |-- requirements.txt    # Python dependencies
 `-- README.md           # Project documentation
@@ -116,7 +130,7 @@ With the environment activated, run:
 uv pip install -r requirements.txt
 ```
 
-The requirements file is currently empty, so no project packages are installed yet. Add required packages to it as the project develops, then rerun this command.
+This installs the project dependencies, including Streamlit, Qdrant, Groq, and the local Hugging Face embedding packages.
 
 To inspect installed packages:
 
@@ -124,13 +138,17 @@ To inspect installed packages:
 uv pip list
 ```
 
-## Development status
+## Run the app
 
-`data-parsing/ex.ipynb` is currently an empty file, not a runnable notebook. Create and save a valid notebook in that location before using it. When working in an editor, select the Python interpreter from `env` and configure a notebook kernel if needed.
+With dependencies installed and environment variables configured, start the app:
 
-There is currently no application entry point, training command, or test suite in the repository. Add execution instructions here as those components are implemented.
+```bat
+python -m streamlit run UI/app.py
+```
 
-The local `.env` file is ignored by Git. No required environment variables or automatic `.env` loading are defined yet.
+For local use, enter credentials in the root `.env`. For Streamlit Community
+Cloud, enter them under **Manage app → Settings → Secrets**. The first hosted
+visitor automatically prepares the default resume in Qdrant if needed.
 
 ## End a development session
 
