@@ -24,6 +24,7 @@ import shutil
 import sys
 from pathlib import Path
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -723,6 +724,115 @@ def try_restore_index_state(
     )
 
     return True
+
+
+def delete_document_from_qdrant(
+    *,
+    pdf_path: Path,
+    fingerprint: str,
+    collection_name: str,
+) -> int:
+    """Delete only the selected PDF's vectors; retain the collection and others."""
+    try:
+        qdrant_url = str(
+            st.secrets.get("QDRANT_URL", "")
+            or st.secrets.get("QDRANT_Cluster_Endpoint", "")
+            or os.getenv("QDRANT_URL", "")
+            or os.getenv("QDRANT_Cluster_Endpoint", "")
+        ).strip()
+        qdrant_api_key = str(
+            st.secrets.get("QDRANT_API_KEY", "")
+            or os.getenv("QDRANT_API_KEY", "")
+        ).strip() or None
+    except Exception:
+        qdrant_url = (
+            os.getenv("QDRANT_URL")
+            or os.getenv("QDRANT_Cluster_Endpoint")
+            or ""
+        ).strip()
+        qdrant_api_key = os.getenv("QDRANT_API_KEY") or None
+
+    if not qdrant_url:
+        raise ValueError("QDRANT_URL is not configured in the app secrets.")
+
+    client = get_qdrant_client(qdrant_url, qdrant_api_key)
+    if not client.collection_exists(collection_name):
+        return 0
+
+    document_id = str(
+        uuid5(
+            NAMESPACE_URL,
+            f"mm-rag-document:{pdf_path.resolve()}",
+        )
+    )
+    document_filter = models.Filter(
+        must=[
+            models.FieldCondition(
+                key="metadata.document_id",
+                match=models.MatchValue(value=document_id),
+            )
+        ]
+    )
+    matching_points = client.count(
+        collection_name=collection_name,
+        count_filter=document_filter,
+        exact=True,
+    ).count
+    if not matching_points:
+        # Absolute paths can differ when ingestion happened on another host.
+        document_filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="metadata.file_sha256",
+                    match=models.MatchValue(value=fingerprint),
+                )
+            ]
+        )
+        matching_points = client.count(
+            collection_name=collection_name,
+            count_filter=document_filter,
+            exact=True,
+        ).count
+    client.delete(
+        collection_name=collection_name,
+        points_selector=models.FilterSelector(filter=document_filter),
+        wait=True,
+    )
+    get_generator.clear()
+    return int(matching_points)
+
+
+def delete_pdf_files(pdf_path: Path, fingerprint: str) -> None:
+    """Remove the selected PDF and its attributable parsed output safely."""
+    resolved_pdf = pdf_path.resolve()
+    resolved_pdf.relative_to(DATA_DIR.resolve())
+    if resolved_pdf.suffix.lower() != ".pdf" or not resolved_pdf.is_file():
+        raise ValueError("The selected file is not an available PDF in data/.")
+
+    output_dir = PARSED_ROOT / resolved_pdf.stem
+    if output_dir.exists():
+        manifest = read_parse_manifest(output_dir)
+        attributable = bool(
+            manifest and manifest.get("sha256") == fingerprint
+        )
+        if not manifest:
+            attributable = legacy_output_mentions_pdf(
+                output_dir, resolved_pdf.name
+            )
+        if attributable:
+            shutil.rmtree(output_dir)
+
+    resolved_pdf.unlink()
+
+    published_path = PROJECT_ROOT / "config" / "public_workspace.json"
+    if published_path.is_file():
+        try:
+            settings = json.loads(published_path.read_text(encoding="utf-8"))
+            published_pdf = (PROJECT_ROOT / settings["pdf_path"]).resolve()
+            if published_pdf == resolved_pdf:
+                published_path.unlink()
+        except (OSError, KeyError, json.JSONDecodeError):
+            pass
 
 
 # ---------------------------------------------------------------------
@@ -1449,6 +1559,7 @@ if is_owner:
 
     selected_pdf_path: Path | None = None
     selected_fingerprint: str | None = None
+    uploaded_file = None
 
     if source_mode == "Use existing project PDF":
         selected_index = st.sidebar.selectbox(
@@ -1505,7 +1616,15 @@ if is_owner:
 
             # Persist uploader bytes because Streamlit upload data itself is
             # session memory, while our parser/image paths need stable files.
-            if (
+            ignored_fingerprint = st.session_state.get(
+                "deleted_upload_fingerprint"
+            )
+            if selected_fingerprint == ignored_fingerprint:
+                st.sidebar.warning(
+                    "This PDF was deleted. Remove it from the uploader before selecting it again."
+                )
+                selected_pdf_path = None
+            elif (
                 not selected_pdf_path.exists()
                 or fingerprint_file(
                     selected_pdf_path
@@ -1521,6 +1640,9 @@ if is_owner:
                 f"{len(uploaded_bytes) / (1024 * 1024):.2f} MB"
             )
 
+
+        else:
+            st.session_state.pop("deleted_upload_fingerprint", None)
 
     # ---------------------------------------------------------------------
     # Document changed -> restore local parsed artifacts
@@ -2025,6 +2147,82 @@ if is_owner:
     render_sidebar_document_workspace(
         selected_pdf_path
     )
+
+
+    # Owner-only cleanup. Remove a PDF's Qdrant points and its local artifacts.
+    delete_candidates = discover_project_pdfs()
+    with st.sidebar.expander("Delete a PDF", expanded=False):
+        st.caption(
+            "This removes the PDF, its parsed artifacts, and its vectors from the selected Qdrant collection. "
+            "On Streamlit Cloud, files committed to GitHub return after a redeploy."
+        )
+        delete_notice = st.session_state.pop("pdf_delete_notice", None)
+        if delete_notice:
+            st.success(delete_notice)
+        if not delete_candidates:
+            st.caption("There are no PDFs in the project's data folder.")
+        else:
+            candidate_paths = [path.resolve() for path in delete_candidates]
+            selected_delete_index = next(
+                (
+                    index
+                    for index, path in enumerate(candidate_paths)
+                    if selected_pdf_path is not None
+                    and path == selected_pdf_path.resolve()
+                ),
+                0,
+            )
+            delete_path = st.selectbox(
+                "Choose a PDF to delete",
+                options=candidate_paths,
+                index=selected_delete_index,
+                format_func=lambda path: path.name,
+                key="delete_pdf_path",
+            )
+            delete_collection = st.text_input(
+                "Collection containing this PDF",
+                value=collection_name,
+                key="delete_pdf_collection",
+            ).strip()
+            delete_fingerprint = fingerprint_file(delete_path)
+            confirm_delete = st.checkbox(
+                f"Permanently delete {delete_path.name} and its Qdrant vectors",
+                key="confirm_pdf_delete",
+            )
+            if st.button(
+                "Delete selected PDF",
+                type="secondary",
+                use_container_width=True,
+                disabled=not confirm_delete or not delete_collection,
+                key="delete_selected_pdf_button",
+            ):
+                try:
+                    with st.spinner("Removing the PDF and its indexed data..."):
+                        deleted_points = delete_document_from_qdrant(
+                            pdf_path=delete_path,
+                            fingerprint=delete_fingerprint,
+                            collection_name=delete_collection,
+                        )
+                        delete_pdf_files(delete_path, delete_fingerprint)
+                    if (
+                        uploaded_file is not None
+                        and delete_fingerprint == file_fingerprint(uploaded_file.getvalue())
+                    ):
+                        st.session_state.deleted_upload_fingerprint = delete_fingerprint
+                    if selected_pdf_path is not None and (
+                        selected_pdf_path.resolve() == delete_path.resolve()
+                    ):
+                        reset_document_state()
+                        st.session_state.document_token = None
+                    st.session_state.chat_messages = []
+                    get_generator.clear()
+                    st.session_state.pdf_delete_notice = (
+                        f"Deleted {delete_path.name} and {deleted_points} Qdrant point(s)."
+                    )
+                    st.rerun()
+                except Exception as exc:
+                    st.sidebar.error("Could not completely delete this PDF.")
+                    st.sidebar.code(deepest_error_message(exc))
 
 
 
