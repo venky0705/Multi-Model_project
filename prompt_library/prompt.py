@@ -52,10 +52,10 @@ RETRIEVED_IMAGE_EVIDENCE_PROMPT = (
 
 
 CHAT_SUGGESTED_PROMPTS = (
-    "Summarize the key policies in this document.",
-    "What are the most important incident details?",
-    "What important information appears in the tables?",
-    "Explain useful visual or diagram evidence.",
+    "Summarize this document in a few sentences.",
+    "What are the main topics and key points?",
+    "What important dates, amounts, or names are mentioned?",
+    "What actions, requirements, or decisions does this document describe?",
 )
 
 

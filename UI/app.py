@@ -187,6 +187,15 @@ def clear_chat() -> None:
     st.session_state.chat_messages = []
 
 
+def configured_owner_password() -> str:
+    """Read the owner password from Streamlit Cloud secrets or local .env."""
+    try:
+        cloud_password = st.secrets.get("OWNER_PASSWORD", "")
+    except Exception:
+        cloud_password = ""
+    return str(cloud_password or os.getenv("OWNER_PASSWORD", ""))
+
+
 init_session_state()
 
 
@@ -1369,7 +1378,7 @@ else:
             password = st.text_input("Owner password", type="password")
             submitted = st.form_submit_button("Log in")
         if submitted:
-            expected = os.getenv("OWNER_PASSWORD", "")
+            expected = configured_owner_password()
             if time.monotonic() < st.session_state.owner_retry_after:
                 st.sidebar.error("Please wait a few seconds before trying again.")
             elif expected and hmac.compare_digest(password.encode(), expected.encode()):
@@ -1991,16 +2000,24 @@ if is_owner:
 
 
     if is_chat_ready() and selected_pdf_path is not None:
-        if st.sidebar.button("Use this document for visitors", use_container_width=True):
-            published_path.parent.mkdir(parents=True, exist_ok=True)
-            settings = {
-                "pdf_path": str(selected_pdf_path.resolve().relative_to(PROJECT_ROOT)),
-                "collection_name": collection_name,
-            }
+        published_path.parent.mkdir(parents=True, exist_ok=True)
+        settings = {
+            "pdf_path": str(selected_pdf_path.resolve().relative_to(PROJECT_ROOT)),
+            "collection_name": collection_name,
+        }
+        current_settings = None
+        if published_path.is_file():
+            try:
+                current_settings = json.loads(
+                    published_path.read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError):
+                current_settings = None
+        if current_settings != settings:
             temporary_path = published_path.with_suffix(".tmp")
             temporary_path.write_text(json.dumps(settings), encoding="utf-8")
             temporary_path.replace(published_path)
-            st.sidebar.success("Visitor document updated.")
+        st.sidebar.caption("Visitors will see the prepared document after logout.")
 else:
     st.sidebar.markdown("## Document assistant")
     if st.sidebar.button("Clear chat", use_container_width=True):
@@ -2019,10 +2036,20 @@ else:
             selected_pdf_path = (PROJECT_ROOT / settings["pdf_path"]).resolve()
             selected_pdf_path.relative_to(DATA_DIR.resolve())
             collection_name = settings["collection_name"]
+            if not selected_pdf_path.is_file():
+                raise FileNotFoundError("The owner's published PDF is not available.")
         else:
-            # Initial setup: reuse the project's existing PDF and default index.
+            # Start with the resume PDF; an owner's published choice takes priority.
             candidates = discover_project_pdfs()
-            selected_pdf_path = candidates[0] if candidates else None
+            resume_pdf = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate.name.lower() == "vemala venkatesh cv.pdf.pdf"
+                ),
+                None,
+            )
+            selected_pdf_path = resume_pdf or (candidates[0] if candidates else None)
         if selected_pdf_path is not None:
             selected_fingerprint = fingerprint_file(selected_pdf_path)
             token = f"{selected_pdf_path.resolve()}|{selected_fingerprint}|{collection_name}"
@@ -2046,6 +2073,7 @@ else:
     if selected_pdf_path is None or not is_chat_ready():
         st.info("The owner needs to prepare a document before chat is available.")
         st.stop()
+    st.sidebar.caption(f"Document: {selected_pdf_path.name}")
 
 # ---------------------------------------------------------------------
 # Main header
@@ -2078,9 +2106,7 @@ st.markdown(
 
 if selected_pdf_path is None:
     st.markdown("### Start a document conversation")
-    st.caption(
-        "Choose an existing PDF or upload a new one from the sidebar."
-    )
+    st.caption("The owner is preparing a document for chat.")
     st.stop()
 
 if st.session_state.parsed_result is None:

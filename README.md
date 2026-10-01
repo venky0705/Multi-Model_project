@@ -4,6 +4,21 @@ For the current Hugging Face embedding, Groq generation, and Qdrant setup,
 see [Provider setup](PROVIDER_SETUP.md). Configuration variable names are provided
 in [.env.example](.env.example).
 
+For Streamlit Community Cloud, configure the required credentials under
+**Manage app → Settings → Secrets**. The hosted service cannot read your local
+`.env` file. At minimum, provide `OWNER_PASSWORD`, `GROQ_API_KEY`, `QDRANT_URL`,
+and `QDRANT_API_KEY` using TOML syntax:
+
+```toml
+OWNER_PASSWORD = "choose-a-private-password"
+GROQ_API_KEY = "your-groq-api-key"
+QDRANT_URL = "your-qdrant-cluster-endpoint"
+QDRANT_API_KEY = "your-qdrant-api-key"
+```
+
+Add `HF_EMBEDDING_MODEL`, `HF_EMBEDDING_DEVICE`, `GROQ_CHAT_MODEL`, and
+`QDRANT_COLLECTION_NAME` there too if you want to override their defaults.
+
 A Python project workspace with a directory for data-parsing notebooks. The project currently contains the initial folder structure; application code, model implementations, and dependencies have not yet been added.
 
 ## Technology and requirements
