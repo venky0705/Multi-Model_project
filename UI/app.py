@@ -2152,13 +2152,6 @@ if is_owner:
     # Owner-only cleanup. Remove a PDF's Qdrant points and its local artifacts.
     delete_candidates = discover_project_pdfs()
     with st.sidebar.expander("Delete a PDF", expanded=False):
-        st.caption(
-            "This removes the PDF, its parsed artifacts, and its vectors from the selected Qdrant collection. "
-            "On Streamlit Cloud, files committed to GitHub return after a redeploy."
-        )
-        delete_notice = st.session_state.pop("pdf_delete_notice", None)
-        if delete_notice:
-            st.success(delete_notice)
         if not delete_candidates:
             st.caption("There are no PDFs in the project's data folder.")
         else:
@@ -2179,11 +2172,6 @@ if is_owner:
                 format_func=lambda path: path.name,
                 key="delete_pdf_path",
             )
-            delete_collection = st.text_input(
-                "Collection containing this PDF",
-                value=collection_name,
-                key="delete_pdf_collection",
-            ).strip()
             delete_fingerprint = fingerprint_file(delete_path)
             confirm_delete = st.checkbox(
                 f"Permanently delete {delete_path.name} and its Qdrant vectors",
@@ -2193,7 +2181,7 @@ if is_owner:
                 "Delete selected PDF",
                 type="secondary",
                 use_container_width=True,
-                disabled=not confirm_delete or not delete_collection,
+                disabled=not confirm_delete,
                 key="delete_selected_pdf_button",
             ):
                 try:
@@ -2201,7 +2189,7 @@ if is_owner:
                         deleted_points = delete_document_from_qdrant(
                             pdf_path=delete_path,
                             fingerprint=delete_fingerprint,
-                            collection_name=delete_collection,
+                            collection_name=collection_name,
                         )
                         delete_pdf_files(delete_path, delete_fingerprint)
                     if (
@@ -2216,7 +2204,7 @@ if is_owner:
                         st.session_state.document_token = None
                     st.session_state.chat_messages = []
                     get_generator.clear()
-                    st.session_state.pdf_delete_notice = (
+                    st.sidebar.success(
                         f"Deleted {delete_path.name} and {deleted_points} Qdrant point(s)."
                     )
                     st.rerun()
